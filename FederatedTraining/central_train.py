@@ -42,10 +42,13 @@ def main(cfg):
                                      item_num=num_items, 
                                     user_num=num_users)
     model.to(device)
-    loss_function = nn.BCEWithLogitsLoss(reduction='sum')
+    # loss_function = nn.BCEWithLogitsLoss(reduction='sum')
+    loss_function = nn.BCEWithLogitsLoss()
+
 
     ########################### TRAINING #####################################
     optimizer = optim.SGD(model.parameters(), lr=cfg.TRAIN.lr, weight_decay=cfg.TRAIN.weight_decay)
+    # optimizer = optim.Adam(model.parameters(), lr=cfg.TRAIN.lr, weight_decay=cfg.TRAIN.weight_decay)
     train_loader = all_train_loader
     print("len dataset", len(train_loader.dataset))
     print("len loader", len(train_loader))
@@ -57,7 +60,12 @@ def main(cfg):
     pbar = tqdm(range(cfg.TRAIN.num_epochs))
     
     client_sampler = ClientSampler(num_users, n_workers=8)
-    client_sampler.initialize_clients(model, feddm, loss_fn=None, shuffle_seed=42, reinit=False, central_train=True)
+    client_sampler.initialize_clients(model, 
+                                      feddm, 
+                                      loss_fn=None, 
+                                      shuffle_seed=42, 
+                                      reinit=False, 
+                                      central_train=True)
     client_sampler.prepare_dataloader(n_clients_per_round=40)
     def train_epoch(train_loader, optimizer):
         model.train()	
@@ -86,21 +94,35 @@ def main(cfg):
         total_loss = 0
         count = 0
         log_dict = {"epoch": epoch}
-
-        for i in tqdm(range(num_users), leave=False):
+        bar = tqdm(range(num_users), leave=False)
+        for i in bar:
             # with timestat.timer("prepare data"):
             #     train_loader = feddm.train_dataloader(cid=[i])
             
             count += 1
             client = client_sampler.next_round(1)[0][0]
             if cfg.TRAIN.optimizer == 'sgd':
-                optimizer = torch.optim.SGD(client._model.parameters(), lr=cfg.TRAIN.lr, weight_decay=cfg.TRAIN.weight_decay)
+                item_emb_params, params_1  = client._model._get_splited_params_for_optim()
+                opt_params = [
+                        {'params': item_emb_params, 'lr': cfg.TRAIN.lr},
+                        {'params': params_1, 'lr': cfg.TRAIN.lr},
+                ]
+                optimizer = torch.optim.SGD(opt_params, 
+                                            lr=cfg.TRAIN.lr, 
+                                            weight_decay=cfg.TRAIN.weight_decay)
             else:
                 raise ValueError("Optimizer not supported")
             # optimizer = torch.optim.Adam(client._model.parameters(), lr=cfg.TRAIN.lr, weight_decay=cfg.TRAIN.weight_decay)
-            metrics = client._fit(client.train_loader, optimizer, loss_function, num_epochs=1, device=device, mask_zero_user_index=False)
+            metrics = client._fit(client.train_loader, 
+                                  optimizer, 
+                                  loss_function, 
+                                  num_epochs=2, 
+                                  device=device,
+                                  base_lr=cfg.TRAIN.lr,
+                                  wd=cfg.TRAIN.weight_decay, 
+                                  mask_zero_user_index=False)
             total_loss += np.mean(metrics['loss'])
-
+            bar.set_postfix({"loss": np.mean(metrics['loss']), "item_emb_norm": metrics['item_avg_norm'], "user_emb_norm": metrics['user_norm']})
         total_loss /= count
         log_dict.update({"loss": total_loss})
         return log_dict

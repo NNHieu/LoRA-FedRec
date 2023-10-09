@@ -145,10 +145,8 @@ class FedLoraNCF(LoraNCF, FedLoraParamsSplitter):
             self.embed_item_GMF.lora_B.requires_grad = False
             self.embed_item_MLP.lora_B.requires_grad = False
     
-    def forward(self, user, item, mask_zero_user_index=True):
+    def forward(self, user, item):
         self.private_inter_mask[item] = 1
-        if mask_zero_user_index:
-            user = torch.zeros_like(user)
         return super().forward(user, item)
     
     # @torch.no_grad()
@@ -207,10 +205,8 @@ class FedLoraMF(LoraMF, FedLoraParamsSplitter):
         if self.freeze_B:
             self.embed_item_GMF.lora_B.requires_grad = False
     
-    def forward(self, user, item, mask_zero_user_index=True):
+    def forward(self, user, item):
         self.private_inter_mask[item] = 1
-        if mask_zero_user_index:
-            user = torch.zeros_like(user)
         return super().forward(user, item)
     
     def server_prepare(self, **kwargs):

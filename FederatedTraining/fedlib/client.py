@@ -107,7 +107,7 @@ class Client:
         # stats_logger.stats_transfer_params(cid=self._cid, stat_dict=self._model.stat_transfered_params(update))
         return update, len(train_loader.dataset), metrics
     
-    def _fit(self, train_loader, optimizer, loss_fn, num_epochs, device, base_lr, wd, **forward_kwargs):
+    def _fit(self, train_loader, optimizer, loss_fn, num_epochs, device, base_lr, wd, mask_zero_user_index=False):
         self._model.train() # Enable dropout (if have).
         loss_hist = []
         # print("User", self.cid, end=" - ")
@@ -116,35 +116,44 @@ class Client:
             count_example = 0
             for user, item, label in train_loader:
                 user = user.to(device)
+                if mask_zero_user_index:
+                    user *= 0
                 item = item.to(device)
                 label = label.float().to(device)
 
                 scale_lr_item_emb = len(set(item.tolist()))
+                # scale_lr_item_emb = 1
                 if self._model.is_lora:
                     scale_lr_item_emb *= self._model.lora_scale_lr
                 optimizer.param_groups[0]['lr'] = base_lr * scale_lr_item_emb
  
                 optimizer.zero_grad()
-                prediction = self._model(user, item, **forward_kwargs)
+                prediction = self._model(user, item)
                 loss = loss_fn(prediction, label)
-                
-                reg_loss = self._model.reg_loss(item, user[:1]*0, scale_item_reg=1/scale_lr_item_emb)
-                # print("losses")
-                # print(item_emb_reg)
-                # print(user_emb_reg)
-                # reg_loss += item_emb_reg + user_emb_reg
-                # print(loss, reg_loss * wd * 0.5)
-                loss += reg_loss * wd * 0.5
-                # print(loss)
-
-                # l2_loss = 0
-
+                if wd > 0:
+                    reg_loss = self._model.reg_loss(item, user[:1]*0, scale_item_reg=1/scale_lr_item_emb)
+                    loss += reg_loss * wd * 0.5
                 loss.backward()
+
+                # with torch.no_grad():
+                #     print(loss.item())
+                #     user_grads = self._model.embed_user_GMF.weight.grad[user]
+                #     user_grads_norm = user_grads.norm(dim=-1).mean().item()
+
+                #     item_grads = self._model.embed_item_GMF.weight.grad[item]
+                #     item_grads_norm = item_grads.norm(dim=-1).mean().item()
+
+                #     user_emb = self._model.embed_user_GMF.weight[user]
+                #     user_emb_norm = user_emb.norm(dim=-1).mean().item()
+                #     item_emb = self._model.embed_item_GMF.weight[item]
+                #     item_emb_norm = item_emb.norm(dim=-1).mean().item()
+
+                #     print(user_grads_norm, item_grads_norm, user_emb_norm, item_emb_norm)
+
                 optimizer.step()
 
                 count_example += 1
                 total_loss += loss.item()
-                # exit(0)
             total_loss /= count_example
             loss_hist.append(total_loss)
 
@@ -155,10 +164,13 @@ class Client:
             else:
                 item_emb_weight = self._model.embed_item_GMF.weight.data
             item_emb = item_emb_weight[item]
-            user_emb = self._model.embed_user_GMF.weight[0]
-
             item_avg_norm = item_emb.norm(dim=1).mean().item() 
-            user_norm = user_emb.norm().item()
+            if mask_zero_user_index:
+                user_emb = self._model.embed_user_GMF.weight[0]
+                user_norm = user_emb.norm().item()
+            else:
+                user_norm = self._model.embed_user_GMF.weight[user].norm(dim=1).mean().item()
+        # raise RuntimeError()
         return {
             "loss": loss_hist,
             "item_avg_norm": item_avg_norm,

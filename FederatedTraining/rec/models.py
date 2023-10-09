@@ -96,6 +96,10 @@ class NCF(nn.Module):
         nn.init.normal_(self.embed_user_MLP.weight, std=0.01)
         nn.init.normal_(self.embed_item_GMF.weight, std=0.01)
         nn.init.normal_(self.embed_item_MLP.weight, std=0.01)
+        # nn.init.normal_(self.embed_user_GMF.weight, std=math.sqrt(1/self.embed_user_GMF.weight.shape[1]))
+        # nn.init.normal_(self.embed_user_MLP.weight, std=math.sqrt(1/self.embed_user_MLP.weight.shape[1]))
+        # nn.init.normal_(self.embed_item_GMF.weight, std=math.sqrt(1/self.embed_item_GMF.weight.shape[1]))
+        # nn.init.normal_(self.embed_item_MLP.weight, std=math.sqrt(1/self.embed_item_MLP.weight.shape[1]))
 
         for m in self.MLP_layers:
             if isinstance(m, nn.Linear):
@@ -120,9 +124,9 @@ class NCF(nn.Module):
 
     def forward(self, user, item, **kwargs):
         output_GMF = self._gmf_forward(user, item)
+        # return output_GMF.sum(dim=-1)
         output_MLP = self._mlp_forward(user, item)
         concat = torch.cat((output_GMF, output_MLP), -1)
-        # concat = output_GMF
         prediction = self.predict_layer(concat)
         return prediction.view(-1)
 

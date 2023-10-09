@@ -139,10 +139,8 @@ class FedMF(MF, FedParamSpliter):
         MF.__init__(self, user_num, item_num, gmf_emb_size)
         FedParamSpliter.__init__(self, item_num)
 
-    def forward(self, user, item, mask_zero_user_index=True):
+    def forward(self, user, item):
         self.private_inter_mask[item] = 1
-        if mask_zero_user_index:
-            user = torch.zeros_like(user)
         return super().forward(user, item)
     
     def _reinit_private_params(self):
@@ -191,10 +189,8 @@ class FedNCFModel(NCF, FedParamSpliter):
         FedParamSpliter.__init__(self, item_num)
         self.user_num = user_num
 
-    def forward(self, user, item, mask_zero_user_index=True):
+    def forward(self, user, item):
         self.private_inter_mask[item] = 1
-        if mask_zero_user_index:
-            user = torch.zeros_like(user)
         return super().forward(user, item)
     
     def _reinit_private_params(self):

@@ -21,7 +21,7 @@ def cal_loss(model, train_loader, loss_function, device='cpu'):
 		user = user.to(device)
 		item = item.to(device)
 		label = label.to(device)
-		predictions = model(user, item, mask_zero_user_index=False)
+		predictions = model(user, item)
 		loss = loss_function(predictions, label)
 		losses.append(loss.item())
 	return np.mean(losses).item()
@@ -31,7 +31,7 @@ def metrics(model, test_loader, top_k, device='cpu', num_negatives=99):
 	for user, item, label in tqdm(test_loader, leave=False):
 		user = user.to(device)
 		item = item.to(device)
-		predictions = model(user, item, mask_zero_user_index=False)
+		predictions = model(user, item)
 		preds.append(predictions)
 	
 	# Predefined true index
