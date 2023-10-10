@@ -8,5 +8,5 @@ init:
   lora_alpha: ${net.init.lora_rank}
   freeze_B: True
 server_prepare_kwargs:
-  init_B_strategy: "random-scaling"
-name: fedncf${net.init.gmf_emb_size}-${net.init.mlp_emb_size}-lora${net.init.lora_rank}-fb
+  init_B_strategy: "orthnorm"
+name: fedncf${net.init.gmf_emb_size}-${net.init.mlp_emb_size}-lora${net.init.lora_rank}-on-fb

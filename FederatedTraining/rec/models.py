@@ -153,6 +153,10 @@ class LoraNCF(NCF):
     def is_lora(self):
         return True
     
+    @property
+    def lora_scale_lr(self):
+        return math.sqrt(self.embed_item_GMF._r / self.embed_item_GMF._embedding_dim)
+    
 class LoraMF(MF):
     def __init__(self, user_num, item_num, gmf_emb_size=16, lora_rank=4, lora_alpha=4, freeze_B=False):
         ItemEmbLayer = lambda num_emb, emb_dim: lora.Embedding(num_emb, emb_dim, r=lora_rank, lora_alpha=lora_alpha)

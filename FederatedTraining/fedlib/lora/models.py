@@ -140,7 +140,9 @@ class FedLoraParamsSplitter:
 
 class FedLoraNCF(LoraNCF, FedLoraParamsSplitter):
     def __init__(self, item_num, gmf_emb_size=16, mlp_emb_size=64, mlp_layer_dims=[128, 64, 32, 16], dropout=0., lora_rank=4, lora_alpha=4, freeze_B=False, user_num=1):
-        super().__init__(user_num, item_num, gmf_emb_size, mlp_emb_size, mlp_layer_dims, dropout, lora_rank, lora_alpha, freeze_B)
+        LoraNCF.__init__(self, user_num, item_num, gmf_emb_size, mlp_emb_size, mlp_layer_dims, dropout, lora_rank, lora_alpha, freeze_B)
+        FedLoraParamsSplitter.__init__(self, item_num)
+        
         if self.freeze_B:
             self.embed_item_GMF.lora_B.requires_grad = False
             self.embed_item_MLP.lora_B.requires_grad = False
