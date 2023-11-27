@@ -32,10 +32,6 @@ def run_server(
     feddm.setup()
     num_items = feddm.num_items
     num_users = feddm.num_users
-    all_train_loader = feddm.train_dataloader(for_eval=True)
-    
-    val_loader = feddm.val_dataloader()
-    test_loader = feddm.test_dataloader()
 
     logging.info("Num users: %d" % num_users)
     logging.info("Num items: %d" % num_items)
@@ -46,7 +42,6 @@ def run_server(
     mylogger = Logger(cfg, model, wandb=cfg.TRAIN.wandb)
     
     model.to(cfg.TRAIN.device)
-
     # loss_fn = torch.nn.BCEWithLogitsLoss(reduction='sum')
     loss_fn = torch.nn.BCEWithLogitsLoss()
 
@@ -59,11 +54,18 @@ def run_server(
         server = fedlib.server.SimpleServer(cfg, model, client_sampler)
 
         for epoch in range(cfg.FED.agg_epochs):
+            train_log = server.train_round(epoch_idx=epoch)
+            update_norms_dict = train_log.pop('update_norms_dict')
+            update_norms_dict = {'update_norms/' + k: v for k, v in update_norms_dict.items()}
+
             log_dict = {"epoch": epoch}
-            log_dict.update(server.train_round(epoch_idx=epoch))
+            log_dict.update(train_log)
+            log_dict.update(update_norms_dict)
             nan_flag = False
             if (cfg.EVAL.interval > 0) and ((epoch % cfg.EVAL.interval == 0) or (epoch == cfg.FED.agg_epochs - 1)):                
-                test_metrics = server.evaluate(val_loader, test_loader, train_loader=all_train_loader)
+                test_metrics = server.evaluate(feddm.val_dataloader(), 
+                                               feddm.test_dataloader(), 
+                                               train_loader=feddm.train_dataloader(for_eval=True))
                 if math.isnan(test_metrics['train/loss']):
                     nan_flag = True
                 log_dict.update(test_metrics)

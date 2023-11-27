@@ -92,14 +92,18 @@ class NCF(nn.Module):
 
     def _init_weight_(self):
         """ We leave the weights initialization here. """
-        nn.init.normal_(self.embed_user_GMF.weight, std=0.01)
-        nn.init.normal_(self.embed_user_MLP.weight, std=0.01)
-        nn.init.normal_(self.embed_item_GMF.weight, std=0.01)
-        nn.init.normal_(self.embed_item_MLP.weight, std=0.01)
+        # nn.init.normal_(self.embed_user_GMF.weight, std=0.01)
+        # nn.init.normal_(self.embed_user_MLP.weight, std=0.01)
+        # nn.init.normal_(self.embed_item_GMF.weight, std=0.01)
+        # nn.init.normal_(self.embed_item_MLP.weight, std=0.01)
         # nn.init.normal_(self.embed_user_GMF.weight, std=math.sqrt(1/self.embed_user_GMF.weight.shape[1]))
         # nn.init.normal_(self.embed_user_MLP.weight, std=math.sqrt(1/self.embed_user_MLP.weight.shape[1]))
         # nn.init.normal_(self.embed_item_GMF.weight, std=math.sqrt(1/self.embed_item_GMF.weight.shape[1]))
         # nn.init.normal_(self.embed_item_MLP.weight, std=math.sqrt(1/self.embed_item_MLP.weight.shape[1]))
+        nn.init.normal_(self.embed_user_GMF.weight, std=0.05 * math.sqrt(1/self.embed_user_GMF.weight.shape[1]))
+        nn.init.normal_(self.embed_user_MLP.weight, std=0.05 * math.sqrt(1/self.embed_user_MLP.weight.shape[1]))
+        nn.init.normal_(self.embed_item_GMF.weight, std=0.05 * math.sqrt(1/self.embed_item_GMF.weight.shape[1]))
+        nn.init.normal_(self.embed_item_MLP.weight, std=0.05 * math.sqrt(1/self.embed_item_MLP.weight.shape[1]))
 
         for m in self.MLP_layers:
             if isinstance(m, nn.Linear):
@@ -138,7 +142,6 @@ class LoraNCF(NCF):
     def __init__(self, user_num, item_num, gmf_emb_size=16, mlp_emb_size=64, mlp_layer_dims=[128, 64, 32, 16], dropout=0., lora_rank=4, lora_alpha=4, freeze_B=False):
         ItemEmbLayer = lambda num_emb, emb_dim: lora.Embedding(num_emb, emb_dim, r=lora_rank, lora_alpha=lora_alpha)
         super().__init__(user_num, item_num, gmf_emb_size, mlp_emb_size, mlp_layer_dims, dropout, ItemEmbedding=ItemEmbLayer)
-        self.freeze_B = freeze_B
         self.lora_layer_names = ['embed_item_GMF', 'embed_item_MLP']
     
     def _merge_all_lora_weights(self):

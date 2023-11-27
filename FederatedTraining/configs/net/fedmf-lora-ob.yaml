@@ -3,7 +3,7 @@ init:
   gmf_emb_size: 64
   lora_rank: 2
   lora_alpha: ${net.init.lora_rank}
-  freeze_B: True
+  freeze_B: False
 server_prepare_kwargs:
   init_B_strategy: "orthnorm"
 name: fedmf${net.init.gmf_emb_size}_lora${net.init.lora_rank}ob

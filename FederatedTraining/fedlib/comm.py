@@ -1,10 +1,9 @@
 from typing import Dict, List, Tuple
 import random
 from fedlib.client import Client
-from fedlib.standard.models import TransferedParams
 from multiprocessing import Process, Queue
 import pickle
-
+from .param_tree import tree_add_, tree_div_, tree_zeros_like
 
 def _prepare_dataloader(participants, pid, n_workers, queue):
     i = pid
@@ -75,7 +74,7 @@ class ClientSampler:
 
     def prepare_dataloader(self, n_clients_per_round) -> None:
         self.processors = []
-        self._n_workers = 8
+        self._n_workers = 1
         self.queue = [Queue(maxsize=n_clients_per_round) for _ in range(self._n_workers)]
         # for i in range(self._n_workers):
         for i in range(self._n_workers):
@@ -100,22 +99,23 @@ class ClientSampler:
             process.join()
 
 class AvgAggregator:
-    def __init__(self, sample_params: TransferedParams, strategy='fedavg') -> None:
-       self.aggregated_params = sample_params.zero_likes()
-       self.count = 0.
-       self.strategy = strategy
-        
-    def collect(self, params: TransferedParams, weight=1):
-        params.decompress()
+    def __init__(self, sample_param_tree: dict, strategy='fedavg') -> None:
+        self.aggregated_param_tree = tree_zeros_like(sample_param_tree)
+        self.count = 0.
+        self.strategy = strategy
+    
+    def collect(self, param_tree: dict, weight=1):
+        interaction_mask = param_tree['private_inter_mask']
         if self.strategy == 'fedavg':
-            self.aggregated_params = self.aggregated_params.add_(params, alpha=weight)
+            tree_add_(self.aggregated_param_tree, param_tree, interaction_mask, weight)
             self.count += weight
         elif self.strategy == 'simpleavg':
-            self.aggregated_params = self.aggregated_params.add_(params)
+            tree_add_(self.aggregated_param_tree, param_tree, interaction_mask, 1.)
             self.count += 1.
         else:
             raise NotImplementedError(f'Aggregation strategy {self.strategy} not implemented')
 
     def finallize(self):
-        return self.aggregated_params.div_scalar_(self.count)
-        # return self.aggregated_params
+        interaction_mask = self.aggregated_param_tree['private_inter_mask']
+        tree_div_(self.aggregated_param_tree, interaction_mask, self.count)
+        return self.aggregated_param_tree

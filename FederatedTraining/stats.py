@@ -16,7 +16,7 @@ class TimeStats(object):
     def __init__(self) -> None:
         # self.reset()
         self.flag_timestem = {}
-        self._time_dict = {}
+        self._time_dict = {'set_parameters': 0, 'fit': 0, 'compress': 0, 'get_parameters': 0, 'client_time': 0}
         self._pca_vars = []
 
     def __str__(self):
@@ -30,8 +30,12 @@ class TimeStats(object):
         #     "evaluate": 0,
         #     "get_parameters": 0,
         # }
-        for name in flat_names:
-            self._time_dict[name] = 0
+        if len(flat_names) == 0:
+            self._time_dict = {'set_parameters': 0, 'fit': 0, 'compress': 0, 'get_parameters': 0, 'client_time': 0}
+
+        else:
+            for name in flat_names:
+                self._time_dict[name] = 0
         # self._pca_vars = []
     
     def set_aggregation_epoch(self, aggregation_epoch):

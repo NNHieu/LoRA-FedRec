@@ -4,10 +4,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .standard.models import FedNCFModel, TransferedParams
+from .standard.models import FedNCFModel
 from fedlib.data import FedDataModule
 from stats import TimeStats
 import math
+import optree
+from .param_tree import tree_sub_
 
 class Client:
     def __init__(
@@ -22,21 +24,20 @@ class Client:
         self.datamodule = datamodule
         self._model = model
         if not central_train:
-            self._private_params = self._model._get_splited_params()[0]
+            self._private_params = self._model.get_private_params()
         self.loss_fn = loss_fn
 
     @property
     def cid(self):
         return self._cid
 
-    def get_parameters(self, config, old_shared_params) -> TransferedParams:
-        private_params, sharable_params = self._model._get_splited_params(old_shared_params=old_shared_params)
+    def get_parameters(self, config):
+        private_params, sharable_params = self._model._get_splited_params()
         self._private_params = private_params
         return sharable_params
 
     def set_parameters(self, global_params: List[np.ndarray]) -> None:
         self._model._set_state_from_splited_params([self._private_params, global_params])
-    
     
     def prepare_dataloader_mp(self, config):
         # print(f'*Preparing client {self.cid}')
@@ -49,13 +50,13 @@ class Client:
 
     def fit(
         self, 
-        server_params: TransferedParams, 
+        server_params: dict, 
         local_epochs: int,
         config: Dict[str, str], 
         device, 
         stats_logger: TimeStats,
         **forward_kwargs
-    ) -> Tuple[TransferedParams, int, Dict]:
+    ) -> Tuple[dict, int, Dict]:
         # Preparing train dataloader
         try:
             train_loader = self.train_loader
@@ -69,20 +70,15 @@ class Client:
                 with stats_logger.timer('set_parameters'):
                     self.set_parameters(server_params)
         
-        if True:
-        # if 'ncf' in config.net.name:
-            item_emb_params, params_1  = self._model._get_splited_params_for_optim()
-            opt_params = [
-                    {'params': item_emb_params, 'lr': config.TRAIN.lr*train_loader.batch_size},
-                    {'params': params_1, 'lr': config.TRAIN.lr},
-            ]
-        # else:
-            # opt_params = self._model.parameters()
+        item_emb_params, params_1  = self._model._get_splited_params_for_optim()
+        opt_params = [
+                {'params': item_emb_params, 'lr': config.TRAIN.lr},
+                {'params': params_1, 'lr': config.TRAIN.lr},
+        ]
         if config.TRAIN.optimizer == 'sgd':
             optimizer = torch.optim.SGD(opt_params, lr=config.TRAIN.lr,) # weight_decay=config.TRAIN.weight_decay)
         elif config.TRAIN.optimizer == 'adam':
             optimizer = torch.optim.Adam(opt_params, lr=config.TRAIN.lr,) # weight_decay=config.TRAIN.weight_decay)
-
 
         with stats_logger.timer('fit'):
             metrics = self._fit(train_loader, 
@@ -96,60 +92,40 @@ class Client:
         
         with torch.no_grad():
             with stats_logger.timer('get_parameters'):
-                sharable_params = self.get_parameters(None, server_params)
-                update = None
+                sharable_param_tree = self.get_parameters(None)
                 if server_params is not None:
-                    update = sharable_params.sub(server_params)
+                    sharable_param_tree = tree_sub_(sharable_param_tree, server_params)
+                    # if config.FED.compression_kwargs.method != "none":
+                    #     with stats_logger.timer('compress', max_agg=True):
+                    #         sharable_param_tree.compress(**config.FED.compression_kwargs)
 
-                    with stats_logger.timer('compress'):
-                        update.compress(**config.FED.compression_kwargs)
-
-        # stats_logger.stats_transfer_params(cid=self._cid, stat_dict=self._model.stat_transfered_params(update))
-        return update, len(train_loader.dataset), metrics
+        # stats_logger.stats_transfer_params(cid=self._cid, stat_dict=self._model.stat_transfered_params(update_tree))
+        return sharable_param_tree, len(train_loader.dataset), metrics
     
+    def _scale_lr(self, base_lr, item, optimizer):
+        scale_lr_item_emb = len(set(item.tolist()))
+        if self._model.is_lora:
+            scale_lr_item_emb *= self._model.lora_scale_lr
+        optimizer.param_groups[0]['lr'] = base_lr * scale_lr_item_emb
+
     def _fit(self, train_loader, optimizer, loss_fn, num_epochs, device, base_lr, wd, mask_zero_user_index=False):
         self._model.train() # Enable dropout (if have).
         loss_hist = []
-        # print("User", self.cid, end=" - ")
         for e in range(num_epochs):
-            total_loss = 0
-            count_example = 0
+            total_loss, count_example = 0, 0
             for user, item, label in train_loader:
-                user = user.to(device)
+                user, item, label = user.to(device), item.to(device), label.float().to(device)
                 if mask_zero_user_index:
                     user *= 0
-                item = item.to(device)
-                label = label.float().to(device)
-
-                scale_lr_item_emb = len(set(item.tolist()))
-                # scale_lr_item_emb = 1
-                if self._model.is_lora:
-                    scale_lr_item_emb *= self._model.lora_scale_lr
-                optimizer.param_groups[0]['lr'] = base_lr * scale_lr_item_emb
+                self._scale_lr(base_lr, item, optimizer)
  
                 optimizer.zero_grad()
                 prediction = self._model(user, item)
                 loss = loss_fn(prediction, label)
-                if wd > 0:
-                    reg_loss = self._model.reg_loss(item, user[:1]*0, scale_item_reg=1/scale_lr_item_emb)
-                    loss += reg_loss * wd * 0.5
+                # if wd > 0:
+                #     reg_loss = self._model.reg_loss(item, user[:1]*0, scale_item_reg=1/scale_lr_item_emb)
+                #     loss += reg_loss * wd * 0.5
                 loss.backward()
-
-                # with torch.no_grad():
-                #     print(loss.item())
-                #     user_grads = self._model.embed_user_GMF.weight.grad[user]
-                #     user_grads_norm = user_grads.norm(dim=-1).mean().item()
-
-                #     item_grads = self._model.embed_item_GMF.weight.grad[item]
-                #     item_grads_norm = item_grads.norm(dim=-1).mean().item()
-
-                #     user_emb = self._model.embed_user_GMF.weight[user]
-                #     user_emb_norm = user_emb.norm(dim=-1).mean().item()
-                #     item_emb = self._model.embed_item_GMF.weight[item]
-                #     item_emb_norm = item_emb.norm(dim=-1).mean().item()
-
-                #     print(user_grads_norm, item_grads_norm, user_emb_norm, item_emb_norm)
-
                 optimizer.step()
 
                 count_example += 1
