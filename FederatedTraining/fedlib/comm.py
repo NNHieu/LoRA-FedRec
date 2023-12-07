@@ -105,7 +105,11 @@ class AvgAggregator:
         self.strategy = strategy
     
     def collect(self, param_tree: dict, weight=1):
-        interaction_mask = param_tree['private_inter_mask']
+        if 'private_inter_mask' in param_tree:
+            interaction_mask = param_tree['private_inter_mask']
+        else:
+            interaction_mask = None
+
         if self.strategy == 'fedavg':
             tree_add_(self.aggregated_param_tree, param_tree, interaction_mask, weight)
             self.count += weight
@@ -116,6 +120,9 @@ class AvgAggregator:
             raise NotImplementedError(f'Aggregation strategy {self.strategy} not implemented')
 
     def finallize(self):
-        interaction_mask = self.aggregated_param_tree['private_inter_mask']
+        if 'private_inter_mask' in self.aggregated_param_tree:
+            interaction_mask = self.aggregated_param_tree['private_inter_mask']
+        else:
+            interaction_mask = None
         tree_div_(self.aggregated_param_tree, interaction_mask, self.count)
         return self.aggregated_param_tree

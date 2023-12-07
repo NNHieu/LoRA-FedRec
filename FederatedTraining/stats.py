@@ -84,7 +84,8 @@ class Logger():
             wandb.log(log_dict)
         self.hist.append(log_dict)
         if term_out:
-            logging.info(log_dict)
+            console_log_dict = {k: v for k, v in log_dict.items() if not (k.startswith('time/') or k.startswith('update_norms/')) }
+            logging.info(console_log_dict)
         
     def finish(self, **kwargs):
         if self.wandb:

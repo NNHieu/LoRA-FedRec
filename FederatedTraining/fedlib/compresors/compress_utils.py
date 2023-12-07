@@ -223,9 +223,10 @@ def orthogonalize(matrix, eps=torch.tensor(1e-8)):
 
 
 class CompressorMess:
-    def __init__(self, byte_data, numel) -> None:
+    def __init__(self, byte_data, numel, device) -> None:
         self.byte_data = byte_data
         self._numel = numel
+        self.device = device
     
     def numel(self):
         return self._numel

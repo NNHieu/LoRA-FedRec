@@ -1,0 +1,8 @@
+init:
+  _target_: fedlib.metamf.MetaMF
+  item_emb_size: 32
+  user_emb_size: ${net.init.item_emb_size}
+  item_mem_num: 8
+  mem_size: 128
+  hidden_size: 512
+name: fedmetamf${net.init.item_emb_size}

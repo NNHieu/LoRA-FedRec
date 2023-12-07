@@ -16,6 +16,8 @@ FED:
   compression_kwargs:
     method: 'none'
   aggregation: 'fedavg'
+  dp:
+    noise_scale: 0
 
 DATA:
   root: '../data/Data'

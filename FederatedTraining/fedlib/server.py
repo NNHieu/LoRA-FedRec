@@ -11,7 +11,7 @@ from stats import TimeStats
 from fedlib.comm import AvgAggregator, ClientSampler
 import time
 import optree
-from .param_tree import treedict2statedict
+from .param_tree import treedict2statedict, tree_server_add_
 
 class SimpleServer:
     def __init__(self, cfg, model, client_sampler: ClientSampler):
@@ -26,7 +26,7 @@ class SimpleServer:
         # with self._timestats.timer("server_decompress_time"):
         #     delta_params.decompress()
         with self._timestats.timer("server_time"):
-            optree.tree_map_(lambda x, y: x.add_(y), self.server_params, delta_params)
+            optree.tree_map_(lambda x, y: tree_server_add_(x, y, None, 1.), self.server_params, delta_params)
             # self.server_params.server_step_(delta_params)
         with self._timestats.timer("server_unroleAB_time"):
             self.model._set_state_from_splited_params([self._dummy_private_params, treedict2statedict(self.server_params)])
@@ -86,6 +86,8 @@ class SimpleServer:
             # update_norm += torch.linalg.norm(update['embed_item_GMF.weight']).item()
             
             # update_numel += sum([t.numel() for t in update.values()])
+            # update_numel_tree = optree.tree_map(lambda x: x.numel() if x is not None else 0, update)
+            # print(update_numel_tree)
             update_numel += optree.tree_reduce(lambda x, y: x + y.numel(), update, initial=0)
             with self._timestats.timer("server_time"):
                 aggregator.collect(update, weight=(data_size/all_data_size))
@@ -121,11 +123,13 @@ class SimpleServer:
                 metrics['train/loss'] = train_loss
             eval_model.eval()
             if test_loader is not None:
-                HR, NDCG = evaluate.metrics(eval_model, test_loader, self.cfg.EVAL.topk, device=self.cfg.TRAIN.device)
+                HR, NDCG, mae, mse = evaluate.metrics(eval_model, test_loader, self.cfg.EVAL.topk, device=self.cfg.TRAIN.device)
+                metrics['test/MAE'] = mae
+                metrics['test/MSE'] = mse
                 metrics['test/HR'] = HR
                 metrics['test/NDCG'] = NDCG
             if val_loader is not None:
-                HR_val, NDCG_val = evaluate.metrics(eval_model, val_loader, self.cfg.EVAL.topk, device=self.cfg.TRAIN.device)
+                HR_val, NDCG_val, mae, mse = evaluate.metrics(eval_model, val_loader, self.cfg.EVAL.topk, device=self.cfg.TRAIN.device)
                 metrics['val/HR'] = HR_val
                 metrics['val/NDCG'] = NDCG_val
         return metrics

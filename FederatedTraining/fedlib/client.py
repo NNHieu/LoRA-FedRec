@@ -9,7 +9,8 @@ from fedlib.data import FedDataModule
 from stats import TimeStats
 import math
 import optree
-from .param_tree import tree_sub_
+from .param_tree import tree_sub_, tree_add_
+from .dp import gaussian_noise
 
 class Client:
     def __init__(
@@ -78,7 +79,7 @@ class Client:
         if config.TRAIN.optimizer == 'sgd':
             optimizer = torch.optim.SGD(opt_params, lr=config.TRAIN.lr,) # weight_decay=config.TRAIN.weight_decay)
         elif config.TRAIN.optimizer == 'adam':
-            optimizer = torch.optim.Adam(opt_params, lr=config.TRAIN.lr,) # weight_decay=config.TRAIN.weight_decay)
+            optimizer = torch.optim.Adam(opt_params, lr=config.TRAIN.lr, weight_decay=config.TRAIN.weight_decay)
 
         with stats_logger.timer('fit'):
             metrics = self._fit(train_loader, 
@@ -98,14 +99,26 @@ class Client:
                     # if config.FED.compression_kwargs.method != "none":
                     #     with stats_logger.timer('compress', max_agg=True):
                     #         sharable_param_tree.compress(**config.FED.compression_kwargs)
+            
+        # if config.FED.dp.noise_scale > 0:
+        #     noise = torch.normal(0, config.FED.dp.noise_scale, sharable_param_tree.numel())
+        #     noise = noise.reshape(sharable_param_tree.shape)
+        #     sharable_param_tree.add_(noise)
+
+        #     noise_tree = optree.tree_map(lambda x: gaussian_noise(x.shape, 
+        #                                                           config.FED.dp.clip, 
+        #                                                           config.FED.dp.sigma, 
+        #                                                           device=x.device), 
+        #                                                           sharable_param_tree)
+        #     tree_add_()
 
         # stats_logger.stats_transfer_params(cid=self._cid, stat_dict=self._model.stat_transfered_params(update_tree))
         return sharable_param_tree, len(train_loader.dataset), metrics
     
     def _scale_lr(self, base_lr, item, optimizer):
         scale_lr_item_emb = len(set(item.tolist()))
-        if self._model.is_lora:
-            scale_lr_item_emb *= self._model.lora_scale_lr
+        # if self._model.is_lora:
+        #     scale_lr_item_emb *= self._model.lora_scale_lr
         optimizer.param_groups[0]['lr'] = base_lr * scale_lr_item_emb
 
     def _fit(self, train_loader, optimizer, loss_fn, num_epochs, device, base_lr, wd, mask_zero_user_index=False):
@@ -122,9 +135,10 @@ class Client:
                 optimizer.zero_grad()
                 prediction = self._model(user, item)
                 loss = loss_fn(prediction, label)
-                # if wd > 0:
-                #     reg_loss = self._model.reg_loss(item, user[:1]*0, scale_item_reg=1/scale_lr_item_emb)
-                #     loss += reg_loss * wd * 0.5
+                if wd > 0:
+                    scale_lr_item_emb = len(set(item.tolist()))
+                    reg_loss = self._model.reg_loss(item, user[:1]*0, scale_item_reg=1/scale_lr_item_emb)
+                    loss += reg_loss * wd * 0.5
                 loss.backward()
                 optimizer.step()
 
@@ -133,22 +147,25 @@ class Client:
             total_loss /= count_example
             loss_hist.append(total_loss)
 
-        with torch.no_grad():
-            if self._model.is_lora:
-                lora_comp = (self._model.embed_item_GMF.lora_A @ self._model.embed_item_GMF.lora_B) * self._model.embed_item_GMF.lora_scaling
-                item_emb_weight = self._model.embed_item_GMF.weight.data + lora_comp
-            else:
-                item_emb_weight = self._model.embed_item_GMF.weight.data
-            item_emb = item_emb_weight[item]
-            item_avg_norm = item_emb.norm(dim=1).mean().item() 
-            if mask_zero_user_index:
-                user_emb = self._model.embed_user_GMF.weight[0]
-                user_norm = user_emb.norm().item()
-            else:
-                user_norm = self._model.embed_user_GMF.weight[user].norm(dim=1).mean().item()
+        # with torch.no_grad():
+            # if self._model.is_lora:
+            #     lora_comp = (self._model.embed_item_GMF.lora_A @ self._model.embed_item_GMF.lora_B) * self._model.embed_item_GMF.lora_scaling
+            #     item_emb_weight = self._model.embed_item_GMF.weight.data + lora_comp
+            # else:
+            #     item_emb_weight = self._model.embed_item_GMF.weight.data
+
+            # item_emb = item_emb_weight[item]
+            # item_avg_norm = item_emb.norm(dim=1).mean().item() 
+            # if mask_zero_user_index:
+            #     user_emb = self._model.embed_user_GMF.weight[0]
+            #     user_norm = user_emb.norm().item()
+            # else:
+            #     user_norm = self._model.embed_user_GMF.weight[user].norm(dim=1).mean().item()
         # raise RuntimeError()
         return {
             "loss": loss_hist,
-            "item_avg_norm": item_avg_norm,
-            "user_norm": user_norm
+            # "item_avg_norm": item_avg_norm,
+            "item_avg_norm": 0.0,
+            # "user_norm": user_norm
+            "user_norm": 0.
         }

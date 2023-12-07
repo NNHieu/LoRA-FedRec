@@ -120,11 +120,17 @@ class FedLoraMF(LoraMF, FedLoraParamsSplitter):
         if self.freeze_B:
             self.embed_item_GMF.lora_B.requires_grad = False
     
+    def pre_extract_weight(self):
+        # if not self.freeze_B:
+        #     self._merge_all_lora_weights()
+        pass
+    
     def forward(self, user, item):
         self.private_inter_mask[item] = 1
         return super().forward(user, item)
     
     def server_prepare(self, **kwargs):
+        self.init_B_strategy = kwargs['init_B_strategy']
         self._reset_all_lora_weights(keep_B=False, **kwargs)
     
     def _reinit_private_params(self):

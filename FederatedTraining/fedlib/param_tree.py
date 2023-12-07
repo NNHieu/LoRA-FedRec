@@ -23,23 +23,33 @@ class LoRANode:
     def tree_unflatten(cls, metadata, children):
         return cls(*children)
 
-    def add_(self, o, alpha=1.):
+    def add_(self, o, alpha=1., weight=None, at_server=False):
         assert isinstance(o, LoRANode)
+        if at_server:
+            self.weight.add_(o.weight, alpha=weight)
+            return self
+        
         if not self.freeze_B:
-            if not o.aggregate_weight:
-                update_weight = o.update_lora_weights()
-            else:
-                update_weight = o.weight
+            # if not o.aggregate_weight:
+            #     update_weight = o.update_lora_weights()
+            # else:
+            #     update_weight = o.weight
+            # if isinstance(alpha, InteractionMask):
+            #     self.weight.add_(update_weight * alpha.mask.unsqueeze(-1))
+            # else:
+            #     self.weight.add_(update_weight, alpha=alpha)
+            # return self
+            self.lora_B.add_(o.lora_B, alpha=weight)
             if isinstance(alpha, InteractionMask):
-                self.weight.add_(update_weight * alpha.mask.unsqueeze(-1))
+                self.lora_A.add_(o.lora_A * alpha.mask.unsqueeze(-1))
             else:
-                self.weight.add_(update_weight, alpha=alpha)
+                self.lora_A.add_(o.lora_A, alpha=weight)
             return self
         else:
             if isinstance(alpha, InteractionMask):
                 self.lora_A.add_(o.lora_A * alpha.mask.unsqueeze(-1))
             else:
-                self.lora_A.add_(o.lora_A, alpha=alpha)
+                self.lora_A.add_(o.lora_A, alpha=weight)
             return self
         # if isinstance(o, LoRANode):
             # self.lora_A.add_(o.lora_A)
@@ -59,7 +69,7 @@ class LoRANode:
         # self.weight.sub_(o.weight)
         return self
 
-    def div_(self, alpha):
+    def div_(self, alpha, weight):
         if self.freeze_B:
             if isinstance(alpha, InteractionMask):
                 mask = alpha.mask
@@ -68,13 +78,23 @@ class LoRANode:
             else:
                 self.lora_A.div_(alpha)
         else:
+            # if isinstance(alpha, InteractionMask):
+            #     mask = alpha.mask
+            #     mask[mask == 0] = 1
+            #     self.weight.div_(mask.unsqueeze(-1))
+            # else:
+            #     self.weight.div_(alpha)
+            # return self
             if isinstance(alpha, InteractionMask):
                 mask = alpha.mask
                 mask[mask == 0] = 1
-                self.weight.div_(mask.unsqueeze(-1))
+                self.lora_A.div_(mask.unsqueeze(-1))
             else:
-                self.weight.div_(alpha)
-            return self
+                self.lora_A.div_(weight)
+            self.lora_B.div_(weight)
+            self.weight = self.update_lora_weights()
+            self.lora_A.zero_()
+            self.lora_B.zero_()
         return self
     
     def new_zeros(self):
@@ -87,7 +107,7 @@ class LoRANode:
         else:
             return LoRANode(torch.zeros_like(self.lora_A), 
                             torch.zeros_like(self.lora_B), 
-                            torch.zeros_like(self.lora_scaling), 
+                            self.lora_scaling, 
                             torch.zeros_like(self.weight),
                             self.freeze_B,
                             aggregate_weight=True)
@@ -142,7 +162,7 @@ class EmbNode:
     def tree_unflatten(cls, metadata, children):
         return cls(*children)
 
-    def add_(self, o, alpha=1.):
+    def add_(self, o, alpha=1., weight=None):
         if isinstance(alpha, InteractionMask):
             self.weight.add_(o.weight * alpha.mask.unsqueeze(-1))
         else:
@@ -153,7 +173,7 @@ class EmbNode:
         self.weight.sub_(o.weight)
         return self
 
-    def div_(self, alpha):
+    def div_(self, alpha, weight=None):
         if isinstance(alpha, InteractionMask):
             mask = alpha.mask
             mask[mask == 0] = 1
@@ -269,16 +289,31 @@ def tree_sub_(a, b):
     return optree.tree_map_(lambda x, y: x.sub_(y), a, b)
 
 
-def add_fn(p, x, y, interaction_mask, weight):
+def add_fn(p, x, y, interaction_mask, weight, at_server=False):
     # print(p)
-    x.add_(y, alpha=interaction_mask if isinstance(x, (EmbNode, LoRANode)) else weight)
-
+    if not at_server:
+        if isinstance(x, (EmbNode, LoRANode)) and interaction_mask is not None:
+            x.add_(y, alpha=interaction_mask, weight=weight)
+        else:
+            x.add_(y, alpha=weight)
+    else:
+        if isinstance(x, (EmbNode, LoRANode)):
+            x.add_(y, alpha=interaction_mask, weight=weight, at_server=at_server)
+        else:
+            x.add_(y, alpha=weight)
+        
 def tree_add_(a, b, interaction_mask, weight):
     optree.tree_map_with_path_(lambda p, x, y: add_fn(p, x, y, interaction_mask, weight), a, b)
 
+def tree_server_add_(a, b, interaction_mask, weight):
+    optree.tree_map_with_path_(lambda p, x, y: add_fn(p, x, y, interaction_mask, weight, at_server=True), a, b)
+
 def div_fn(x, interaction_mask, weight):
     # print(p)
-    x.div_(interaction_mask if isinstance(x, (EmbNode, LoRANode)) else weight)
+    if (isinstance(x, (EmbNode, LoRANode)) and interaction_mask is not None):
+        x.div_(interaction_mask, weight)
+    else:
+        x.div_(weight)
 
 def tree_div_(a, interaction_mask, weight):
     optree.tree_map_(lambda x: div_fn(x, interaction_mask, weight), a)

@@ -122,6 +122,9 @@ class FedNCFModel(NCF, FedParamSpliter):
     def server_prepare(self, **kwargs):
         return
     
+    def server_prepare(self, **kwargs):
+        return
+
     @classmethod
     def merge_client_params(cls, clients, server_params, model, device):
         client_weights = [c._private_params.values() for c in clients]

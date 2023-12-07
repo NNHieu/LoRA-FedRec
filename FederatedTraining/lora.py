@@ -59,7 +59,7 @@ class Embedding(nn.Embedding, LoRALayer):
         self.reset_lora_parameters(init_B_strategy='zeros', keep_B=False)
     
     @torch.no_grad()
-    def reset_lora_parameters(self, init_B_strategy, keep_B=False):
+    def reset_lora_parameters(self, init_B_strategy, keep_B=False, scale_norm=1.):
         if hasattr(self, 'lora_A'):
             # initialize A the same way as the default for nn.Linear and B to zero
             nn.init.zeros_(self.lora_A)
@@ -67,14 +67,16 @@ class Embedding(nn.Embedding, LoRALayer):
                 if init_B_strategy == "random":
                     nn.init.normal_(self.lora_B)
                 elif init_B_strategy == "random-scaling":
-                    nn.init.normal_(self.lora_B, mean=0, std=math.sqrt(1/ self._r))
+                    nn.init.normal_(self.lora_B, mean=0, std=scale_norm*math.sqrt(1/ self._r))
                 elif init_B_strategy == "l2norm":
                     nn.init.normal_(self.lora_B)
                     self.lora_B /= torch.linalg.norm(self.lora_B, dim=1, keepdim=True)
+                    self.lora_B *= scale_norm
                 elif init_B_strategy == "orthnorm":
                     nn.init.normal_(self.lora_B)
                     U, S, Vh = torch.linalg.svd(self.lora_B.data, full_matrices=False)
                     self.lora_B.data = (U @ Vh) * math.sqrt(self.embedding_dim / self._r)
+                    self.lora_B *= scale_norm
                 elif init_B_strategy == 'zeros':
                     nn.init.zeros_(self.lora_B)
                 elif init_B_strategy == 'random_rotation':
@@ -90,7 +92,7 @@ class Embedding(nn.Embedding, LoRALayer):
                     Q = Q[indices]
                     Q = Q.to(self.lora_B.data.device)
                     self.lora_B.data = math.sqrt(emb_sz / r) * Q
-
+                    self.lora_B *= scale_norm
                 else:
                     raise ValueError("Unknown init_B_strategy: %s" % init_B_strategy)
             self.merged = False
@@ -120,16 +122,20 @@ class Embedding(nn.Embedding, LoRALayer):
         result = F.embedding(
             x, self.weight, self.padding_idx, self.max_norm,
             self.norm_type, self.scale_grad_by_freq, self.sparse)
+        # result = nn.Embedding.forward(self, x)
         if self.r > 0 and not self.merged:
-            # result = nn.Embedding.forward(self, x)
             after_A = F.embedding(
                 x, self.lora_A, self.padding_idx, self.max_norm,
                 self.norm_type, self.scale_grad_by_freq, self.sparse
             )
+            # after_A = torch.embedding(self.lora_A, x)
             result += (after_A @ self.lora_B) * self.lora_scaling
             return result
         else:
             return result
+        
+    
+
 
 def init_ortho(tensor, gain=1):
     torch.nn.init.orthogonal_(tensor)
